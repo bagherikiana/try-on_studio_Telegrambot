@@ -1,0 +1,1137 @@
+{
+  "name": "Try-On Bot · 2 · Photo & Try-On",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "a09c4792-ef29-4e3b-b3a1-fa5ad2e75241",
+      "name": "From Gateway",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "photo-valid",
+              "leftValue": "={{ $json.photo_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9767881d-3fe3-4da5-baf8-cc5cbe8bc0e7",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        272
+      ],
+      "notes": "true: continue to Photo Kind. false: tell the user why."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=⚠️ {{ $json.photo_error_text }}{{ $json.photo_error === 'too_small' ? '\\n\\n💡 نکته: عکس را به‌صورت «فایل» بفرستید تا کیفیتش کم نشود.' : '' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "reply_to_message_id": "={{ $json.message_id }}"
+        }
+      },
+      "id": "68fecf1a-b9d1-4f4b-afb9-d00d6d0924fc",
+      "name": "Photo Rejected",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        368
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Replies to the rejected photo with the reason. No state change, nothing stored."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "state-await-garment",
+                    "leftValue": "={{ $json.state }}",
+                    "rightValue": "AWAIT_GARMENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "has-person-photo",
+                    "leftValue": "={{ $json.state_data?.person_photo_id }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "number",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "garment"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "person",
+          "allMatchingOutputs": false
+        }
+      },
+      "id": "6daf07d7-6c9f-4ae8-a4fe-1b38b3016478",
+      "name": "Photo Kind",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        176
+      ],
+      "notes": "garment only when state is AWAIT_GARMENT and a person photo is already saved; everything else is a person photo."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH p AS (\n  INSERT INTO tryon.photos (user_id, kind, telegram_file_id, file_unique_id, width, height, file_size)\n  VALUES ($1, 'person', $2, $3, $4, $5, $6)\n  RETURNING id\n)\nUPDATE tryon.users u\n   SET state = 'AWAIT_GARMENT',\n       state_data = jsonb_build_object('person_photo_id', p.id)\n  FROM p\n WHERE u.id = $1\nRETURNING p.id AS person_photo_id, u.state;",
+        "options": {
+          "queryReplacement": "={{ [$json.user_id, $json.photo.file_id, $json.photo.file_unique_id, $json.photo.width, $json.photo.height, $json.photo.file_size] }}",
+          "largeNumbersOutput": "numbers",
+          "replaceEmptyStrings": true
+        }
+      },
+      "id": "21276a2a-4343-424b-9557-9c1251d2cb16",
+      "name": "Save Person Photo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        896,
+        272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "One statement: saves the person photo and moves the user to AWAIT_GARMENT with person_photo_id in state_data."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tryon.photos (user_id, kind, telegram_file_id, file_unique_id, width, height, file_size)\nVALUES ($1, 'garment', $2, $3, $4, $5, $6)\nRETURNING id AS garment_photo_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.user_id, $json.photo.file_id, $json.photo.file_unique_id, $json.photo.width, $json.photo.height, $json.photo.file_size] }}",
+          "largeNumbersOutput": "numbers",
+          "replaceEmptyStrings": true
+        }
+      },
+      "id": "c2931c94-3c82-442c-a6ee-0b22a43f7454",
+      "name": "Save Garment Photo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        896,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Saves the garment photo. State stays AWAIT_GARMENT so the user can try more garments."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('From Gateway').item.json.chat_id }}",
+        "text": "✅ عکس شما ذخیره شد!\n\n👕 حالا عکس <b>لباسی</b> را که می‌خواهید امتحان کنید بفرستید.\n\nبرای بهترین نتیجه:\n• لباس کامل و صاف دیده شود (روی چوب‌لباسی، روی زمین یا تن مانکن)\n• پس‌زمینه ساده باشد\n• فقط <b>یک لباس</b> در عکس باشد\n\n🔄 برای تغییر عکس خودتان، /start را بزنید.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "38feb2c5-da44-4ee7-b3c4-7c27cbae0177",
+      "name": "Ask Garment",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        272
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Confirms the person photo and asks for a garment photo. Catalog button comes later with WF-04."
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify({ user_id: $('From Gateway').item.json.user_id, chat_id: $('From Gateway').item.json.chat_id, message_id: $('From Gateway').item.json.message_id, person_photo_id: $('From Gateway').item.json.state_data.person_photo_id, garment_photo_id: $json.garment_photo_id, garment_id: null }) }}",
+        "options": {}
+      },
+      "id": "585eb1af-5c4a-4061-bb9c-1911fc2ce7bb",
+      "name": "Try-On Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1120,
+        80
+      ],
+      "notes": "Builds the try-on request from the trigger context and the saved garment photo."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM tryon.start_job($1, $2, $3, $4, $5);",
+        "options": {
+          "queryReplacement": "={{ [$json.user_id, $json.person_photo_id, $json.garment_id ?? null, $json.garment_photo_id ?? null, String($execution.id)] }}",
+          "largeNumbersOutput": "numbers"
+        }
+      },
+      "id": "c659e1aa-7bf0-4bd0-a90c-bbc2eba0e709",
+      "name": "Start Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1344,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Calls tryon.start_job: checks block, age, photo ownership, running job and daily quota atomically, then creates the job."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "job-ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ce11a58a-9792-44d1-a353-b681f62ab095",
+      "name": "Job OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        80
+      ],
+      "notes": "true: build the try-on image. false: tell the user why."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Try-On Request').item.json.chat_id }}",
+        "text": "={{ ({\n  job_in_progress: '⏳ تصویر قبلی شما هنوز در حال ساخت است. لطفاً چند لحظه صبر کنید.',\n  daily_limit_reached: '📊 سهمیه امروز شما تمام شد (' + Number($json.used_today).toLocaleString('fa-IR') + ' از ' + Number($json.daily_limit).toLocaleString('fa-IR') + '). فردا دوباره امتحان کنید.',\n  age_not_confirmed: 'لطفاً ابتدا /start را بزنید و قوانین را بپذیرید.',\n  blocked: '⛔ دسترسی شما به سرویس محدود شده است.',\n  invalid_input: 'عکس‌ها معتبر نیستند. لطفاً /start را بزنید و از اول شروع کنید.'\n})[$json.reason] ?? '⚠️ خطای موقت. لطفاً کمی بعد دوباره امتحان کنید.' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "reply_to_message_id": "={{ $('Try-On Request').item.json.message_id }}"
+        }
+      },
+      "id": "465ec55d-46fe-4c42-ba0c-97c3c88b2667",
+      "name": "Job Rejected",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        176
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Message per start_job reason. No job created, no quota used."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Try-On Request').item.json.chat_id }}",
+        "text": "=⏳ در حال ساخت تصویر پرو…\nمعمولاً ۲۰ تا ۶۰ ثانیه طول می‌کشد.\n\n📊 امروز: {{ Number($json.used_today).toLocaleString('fa-IR') }} از {{ Number($json.daily_limit).toLocaleString('fa-IR') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "reply_to_message_id": "={{ $('Try-On Request').item.json.message_id }}"
+        }
+      },
+      "id": "543f3adf-d288-47ea-820d-363de5a55d68",
+      "name": "Processing Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        -16
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Tells the user the try-on started. Its message_id is used later to delete or edit it."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT telegram_file_id FROM tryon.photos WHERE id = $1) AS person_file_id,\n  COALESCE(\n    (SELECT telegram_file_id FROM tryon.photos   WHERE id = $2),\n    (SELECT telegram_file_id FROM tryon.garments WHERE id = $3)\n  ) AS garment_file_id;",
+        "options": {
+          "queryReplacement": "={{ [$('Try-On Request').item.json.person_photo_id, $('Try-On Request').item.json.garment_photo_id ?? null, $('Try-On Request').item.json.garment_id ?? null] }}",
+          "largeNumbersOutput": "numbers"
+        }
+      },
+      "id": "7ff99b9c-8517-47ae-9910-d60129cadc7e",
+      "name": "Get File IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        2016,
+        -16
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Reads Telegram file_ids for the person photo and the garment (user photo or catalog). Read-only; ownership was checked in start_job."
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.person_file_id }}",
+        "additionalFields": {}
+      },
+      "id": "a7cb42cb-3c05-4f44-83b3-2f6116602675",
+      "name": "Download Person",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        -96
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Downloads the person photo inside n8n. The bot token never leaves n8n."
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $('Get File IDs').item.json.garment_file_id }}",
+        "additionalFields": {}
+      },
+      "id": "1f85aaa8-6e21-4f7f-b340-f2782256f6b3",
+      "name": "Download Garment",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2464,
+        -160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Downloads the garment photo (user photo or catalog item)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.gapgpt.app/v1/images/edits",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $json.model }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "image[]",
+              "inputDataFieldName": "person"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "image[]",
+              "inputDataFieldName": "garment"
+            },
+            {
+              "name": "prompt",
+              "value": "Virtual try-on. Image 1 is a photo of a person. Image 2 is a garment. Create a photorealistic image of the SAME person from image 1 wearing the garment from image 2. Keep the face, identity, body shape, skin tone, hair, pose and background unchanged. Replace only the matching clothing with the garment, preserving its exact color, pattern, fabric, logos and details. Natural fit and folds, lighting consistent with the original photo. No text, no watermark."
+            },
+            {
+              "name": "quality",
+              "value": "medium"
+            },
+            {
+              "name": "size",
+              "value": "1024x1536"
+            },
+            {
+              "name": "output_format",
+              "value": "jpeg"
+            },
+            {
+              "name": "n",
+              "value": "1"
+            },
+            {
+              "name": "moderation",
+              "value": "auto"
+            },
+            {
+              "name": "user",
+              "value": "=tg-{{ $('Try-On Request').item.json.user_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "53d24b37-729f-430f-adfc-3b9a0d770dc5",
+      "name": "Call AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2912,
+        -304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "tJbObiQsPW8IgfSz",
+          "name": "gapGPT-v1"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Image provider images/edits (GapGPT): image 1 = person, image 2 = garment, fixed prompt v1. Costs money per run. Errors go to the error output."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-url",
+              "leftValue": "={{ $json.data?.[0]?.url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "08fccf16-e569-4a89-b9dd-ac06ee0c9899",
+      "name": "Has URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3136,
+        -384
+      ],
+      "notes": "GapGPT returns a link (data[0].url); AvalAI returns base64 (data[0].b64_json)."
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.data[0].url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "a68556ae-4235-4f10-a3dd-ca214b83ca8f",
+      "name": "Download Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -480
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "notes": "Downloads the generated image from the provider's link into n8n as binary 'data'."
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "data[0].b64_json",
+        "options": {
+          "fileName": "tryon.jpg",
+          "mimeType": "image/jpeg"
+        }
+      },
+      "id": "b9079a27-15be-4572-aee6-95bd2cb608a5",
+      "name": "To File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        3360,
+        -288
+      ],
+      "notes": "Turns a base64 image (data[0].b64_json) into a file, for providers that return base64."
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "={{ $('Try-On Request').item.json.chat_id }}",
+        "binaryData": true,
+        "additionalFields": {
+          "caption": "✨ این هم تصویر پرو شما!\n\n👕 برای امتحان لباس دیگر، فقط عکس آن را بفرستید.\n🔄 برای عوض کردن عکس خودتان، /start را بزنید.",
+          "fileName": "tryon.jpg",
+          "parse_mode": "HTML",
+          "reply_to_message_id": "={{ $('Try-On Request').item.json.message_id }}"
+        }
+      },
+      "id": "9b44b787-3028-4a37-b24b-959295a556cc",
+      "name": "Send Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3584,
+        -384
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Sends the try-on image as a reply to the garment photo."
+    },
+    {
+      "parameters": {
+        "operation": "deleteMessage",
+        "chatId": "={{ $('Try-On Request').item.json.chat_id }}",
+        "messageId": "={{ $('Processing Message').item.json.result.message_id }}"
+      },
+      "id": "3c706179-0c12-47c0-8fbe-e8b0d3805bcd",
+      "name": "Delete Processing",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3808,
+        -384
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Removes the 'building your image' message. A failure here never blocks the job record."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tryon.finish_job($1, true, $2, NULL, NULL, $3::jsonb, $4) AS ok;",
+        "options": {
+          "queryReplacement": "={{ [$('Start Job').item.json.job_id, $('Send Result').item.json.result.photo.at(-1).file_id, JSON.stringify($('Call AI').item.json.usage ?? null), 1] }}",
+          "largeNumbersOutput": "numbers"
+        }
+      },
+      "id": "d3160b0a-ad31-4d10-ad62-c0bdbae69880",
+      "name": "Finish Job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        4032,
+        -384
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Marks the job succeeded with the result's Telegram file_id and the provider's usage data."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tryon.finish_job($1, false, NULL, $2, $3, NULL, $4) AS ok,\n       $2::text AS error_code,\n       left($3::text, 300) AS error_detail,\n       (SELECT value #>> '{}' FROM tryon.settings WHERE key = 'admin_chat_id') AS admin_chat_id;",
+        "options": {
+          "queryReplacement": "={{ (() => { const s = JSON.stringify($json); const code = s.includes('moderation_blocked') ? 'moderation_blocked' : /insufficient_(user_)?quota|insufficient_tier|model_access_denied|pre-consume quota/.test(s) ? 'provider_balance' : 'ai_error'; return [$('Start Job').item.json.job_id, code, JSON.stringify($json.error ?? $json).slice(0, 2000), 2]; })() }}",
+          "largeNumbersOutput": "numbers"
+        }
+      },
+      "id": "eb3e62b3-7749-4afa-a051-7de41c3d7041",
+      "name": "Finish Job Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        3584,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Any step after Start Job failed: marks the job failed (moderation_blocked, provider_balance or ai_error). Failed jobs do not use quota."
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Try-On Request').item.json.chat_id }}",
+        "messageId": "={{ $('Processing Message').item.json.result.message_id }}",
+        "text": "={{ $json.error_code === 'moderation_blocked' ? '🚫 این تصویر توسط فیلتر محتوا رد شد. لطفاً عکس دیگری بفرستید.\\n(از سهمیه شما کم نشد)' : '😔 متأسفیم، ساخت تصویر ناموفق بود. لطفاً دوباره عکس لباس را بفرستید.\\n(از سهمیه شما کم نشد)' }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "bc026017-5af8-40d0-899a-1336bde03ab3",
+      "name": "Show Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3808,
+        80
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Replaces the 'building your image' message with the error text."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-provider-balance",
+              "leftValue": "={{ $('Finish Job Failed').item.json.error_code }}",
+              "rightValue": "provider_balance",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-admin",
+              "leftValue": "={{ $('Finish Job Failed').item.json.admin_chat_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f2c465fc-08aa-47a8-befc-55deca1583b8",
+      "name": "Needs Admin?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4032,
+        80
+      ],
+      "notes": "Only balance / account-tier errors need the admin; other errors are handled for the user."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Finish Job Failed').item.json.admin_chat_id }}",
+        "text": "=💰 <b>هشدار ادمین</b>\nسرویس تصویر درخواست را به‌خاطر <b>موجودی یا سطح حساب</b> رد کرد.\n\nمدل: <code>{{ $('Start Job').item.json.model }}</code>\nJob: {{ $('Start Job').item.json.job_id }}\nجزئیات: <code>{{ String($('Finish Job Failed').item.json.error_detail ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}</code>\n\n👉 لطفاً موجودی یا سطح حساب سرویس تصویر را بررسی کنید.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "edbd7b0f-192b-4799-bbd8-f0d1f8a9b1a6",
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4256,
+        80
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Tells the admin the image provider rejected a request for balance or tier reasons."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"Validate Photo\" in workflow \"Try-On Bot · 2 · Photo & Try-On\".\n// Mode: Run Once for Each Item. Rejects photos the AI cannot use well.\nconst p = $json.photo;\nconst MAX_BYTES = 10 * 1024 * 1024;\nconst MIN_SIDE = 384;\nconst OK_TYPES = ['image/jpeg', 'image/png', 'image/webp'];\nconst maxMb = (MAX_BYTES / 1024 / 1024).toLocaleString('fa-IR');\n\nconst MESSAGES = {\n  no_photo:   'عکسی دریافت نشد. لطفاً دوباره بفرستید.',\n  bad_format: 'فقط عکس با فرمت JPG، PNG یا WEBP قابل قبول است.',\n  too_large:  `حجم عکس بیشتر از ${maxMb} مگابایت است. لطفاً عکس کوچک‌تری بفرستید.`,\n  too_small:  'کیفیت عکس خیلی پایین است. لطفاً عکس واضح‌تری بفرستید.',\n};\n\nlet error = null;\nif (!p?.file_id) error = 'no_photo';\nelse if (p.mime_type && !OK_TYPES.includes(p.mime_type)) error = 'bad_format';\n// A missing size counts as too large: Telegram cannot download files over 20 MB.\nelse if ((p.file_size ?? Infinity) > MAX_BYTES) error = 'too_large';\nelse if (p.width && p.height && Math.min(p.width, p.height) < MIN_SIDE) error = 'too_small';\n\nreturn {\n  json: { ...$json, photo_valid: !error, photo_error: error, photo_error_text: MESSAGES[error] ?? null },\n};\n"
+      },
+      "id": "6e005d54-35cf-47cc-9ef0-e935d1ec991b",
+      "name": "Validate Photo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        272
+      ],
+      "notes": "Checks format (JPG/PNG/WEBP), size (<=10MB, missing size = too large) and resolution (min side 384px). Source: n8n/code/tryon-validate-photo.js"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"Pack Images\" in workflow \"Try-On Bot · 2 · Photo & Try-On\".\n// Mode: Run Once for Each Item. Puts both downloaded photos on one item\n// (binary \"person\" and \"garment\") so one HTTP request can send both to the image provider.\nconst person = $('Download Person').item.binary?.data;\nconst garment = $input.item.binary?.data;\nif (!person || !garment) {\n  throw new Error(`Missing image: person=${!!person}, garment=${!!garment}`);\n}\n\nconst job = $('Start Job').item.json;\nreturn {\n  json: { job_id: job.job_id, model: job.model, prompt_version: job.prompt_version },\n  binary: { person, garment },\n};\n"
+      },
+      "id": "5009a8e4-c792-4009-af36-5f5f253bef7b",
+      "name": "Pack Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        -240
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Puts both photos on one item as binary person and garment. Source: n8n/code/tryon-pack-images.js"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Photo Kind",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Photo Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Photo Kind": {
+      "main": [
+        [
+          {
+            "node": "Save Garment Photo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Person Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Person Photo": {
+      "main": [
+        [
+          {
+            "node": "Ask Garment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Garment Photo": {
+      "main": [
+        [
+          {
+            "node": "Try-On Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try-On Request": {
+      "main": [
+        [
+          {
+            "node": "Start Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Job": {
+      "main": [
+        [
+          {
+            "node": "Job OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job OK?": {
+      "main": [
+        [
+          {
+            "node": "Processing Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Job Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processing Message": {
+      "main": [
+        [
+          {
+            "node": "Get File IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get File IDs": {
+      "main": [
+        [
+          {
+            "node": "Download Person",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Person": {
+      "main": [
+        [
+          {
+            "node": "Download Garment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Garment": {
+      "main": [
+        [
+          {
+            "node": "Pack Images",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call AI": {
+      "main": [
+        [
+          {
+            "node": "Has URL?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has URL?": {
+      "main": [
+        [
+          {
+            "node": "Download Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "To File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Result": {
+      "main": [
+        [
+          {
+            "node": "Send Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "To File": {
+      "main": [
+        [
+          {
+            "node": "Send Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Result": {
+      "main": [
+        [
+          {
+            "node": "Delete Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Processing": {
+      "main": [
+        [
+          {
+            "node": "Finish Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finish Job Failed": {
+      "main": [
+        [
+          {
+            "node": "Show Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Show Error": {
+      "main": [
+        [
+          {
+            "node": "Needs Admin?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Admin?": {
+      "main": [
+        [
+          {
+            "node": "Alert Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "From Gateway": {
+      "main": [
+        [
+          {
+            "node": "Validate Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Photo": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Images": {
+      "main": [
+        [
+          {
+            "node": "Call AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "cd069b23-1d6e-449f-bf82-98a61c255674",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "nodeGroups": [],
+  "id": "qsf3OLETAZf0mwAz",
+  "tags": []
+}

@@ -1,0 +1,24 @@
+{
+  "name": "virtual-try-on",
+  "version": "1.0.0",
+  "description": "Telegram virtual try-on bot on n8n Cloud + Neon + GapGPT",
+  "scripts": {
+    "db:migrate": "node scripts/migrate.js",
+    "db:app-password": "node scripts/set-app-password.js",
+    "db:set": "node scripts/set-setting.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "devDependencies": {
+    "neonctl": "^8.15.1",
+    "pg": "^8.23.1"
+  },
+  "dependencies": {
+    "@neon/config": "^1.10.0"
+  }
+}

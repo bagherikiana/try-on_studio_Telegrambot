@@ -1,0 +1,820 @@
+{
+  "name": "Try-On Bot · 1 · Gateway & Onboarding",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {
+          "download": false
+        }
+      },
+      "id": "e52142f3-53ed-4aa8-b8b0-046b2efd5f5c",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        -160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "not-ignored",
+              "leftValue": "={{ $json.ignore }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ee24600c-5fe3-4ec0-8569-2fbb6b3774fa",
+      "name": "Skip Ignored",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.4,
+      "position": [
+        448,
+        -160
+      ],
+      "notes": "Drops messages from groups, channels and bots (ignore = true) before any database call."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tryon.users (telegram_user_id, chat_id, username, first_name, language_code)\nVALUES ($1, $2, $3, $4, $5)\nON CONFLICT (telegram_user_id) DO UPDATE\n  SET chat_id       = EXCLUDED.chat_id,\n      username      = EXCLUDED.username,\n      first_name    = EXCLUDED.first_name,\n      language_code = EXCLUDED.language_code,\n      last_seen_at  = now()\nRETURNING id AS user_id, state, state_data, age_confirmed_at, terms_version,\n          is_blocked, (xmax = 0) AS is_new;",
+        "options": {
+          "queryReplacement": "={{ [$json.telegram_user_id, $json.chat_id, $json.username, $json.first_name, $json.language_code] }}",
+          "largeNumbersOutput": "numbers",
+          "replaceEmptyStrings": true
+        }
+      },
+      "id": "9f81a0a6-36b4-4f69-bf93-c74943d31d64",
+      "name": "Upsert User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        672,
+        -160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Creates or updates the user in tryon.users and returns their current state. Runs as the limited n8n_app role."
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify({ ...$('Normalize Update').item.json, ...$json }) }}",
+        "options": {}
+      },
+      "id": "2c3a0873-4179-4a1c-9b65-159fd70facbf",
+      "name": "Build Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        896,
+        -160
+      ],
+      "notes": "Merges the message (Normalize Update) and the user row (Upsert User) into one context object for routing and sub-workflows."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "is-blocked",
+                    "leftValue": "={{ $json.is_blocked }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Blocked"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "cmd-start",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "start",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "age-missing",
+                    "leftValue": "={{ $json.age_confirmed_at }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "empty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Onboarding"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "kind-photo",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "photo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Photo"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "kind-callback",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Callback"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Fallback",
+          "allMatchingOutputs": false
+        }
+      },
+      "id": "28cba77a-dfce-4943-a3f7-b88d803f81a2",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1120,
+        -208
+      ],
+      "notes": "First match wins: Blocked > Onboarding (/start or age not confirmed) > Photo > Callback > Fallback."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "⛔ دسترسی شما به سرویس محدود شده است.\nاگر فکر می‌کنید اشتباهی رخ داده، با پشتیبانی تماس بگیرید.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "reply_to_message_id": "={{ $json.message_id }}"
+        }
+      },
+      "id": "9dc182a2-0466-4ea0-9b00-f3cc8b12d11f",
+      "name": "Blocked Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -448
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Blocked users get one short message. Nothing else runs."
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callback_query_id }}",
+        "additionalFields": {
+          "show_alert": false,
+          "text": "این دکمه دیگر فعال نیست."
+        }
+      },
+      "id": "f4850587-b419-4d9e-930c-8c70ee698e64",
+      "name": "Answer Old Button",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        -64
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Temporary until WF-04: answers clicks on buttons that no longer do anything, so the spinner stops."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ ({\n  AWAIT_PERSON_PHOTO: '📸 لطفاً یک <b>عکس از خودتان</b> بفرستید تا لباس‌ها را روی آن امتحان کنیم.',\n  AWAIT_GARMENT: '👕 لطفاً <b>عکس لباسی</b> را که می‌خواهید امتحان کنید بفرستید.\\n🔄 برای عوض کردن عکس خودتان، /start را بزنید.'\n})[$json.state] ?? '🤖 من فقط با عکس کار می‌کنم! برای شروع، /start را بزنید.' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML",
+          "reply_to_message_id": "={{ $json.message_id }}"
+        }
+      },
+      "id": "aaf97628-8fd6-40ba-9f45-06d357ad89f1",
+      "name": "Fallback Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        128
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Text, stickers, voice, unknown commands: tells the user the next step for their current state."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "is-callback-ok",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "data-age-ok",
+                    "leftValue": "={{ $json.callback_data }}",
+                    "rightValue": "age_ok",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "age_ok"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "is-callback-no",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "data-age-no",
+                    "leftValue": "={{ $json.callback_data }}",
+                    "rightValue": "age_no",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "age_no"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "age-confirmed",
+                    "leftValue": "={{ $json.age_confirmed_at }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "returning"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "show_terms",
+          "allMatchingOutputs": false
+        }
+      },
+      "id": "d7ce1c96-4520-4d10-b186-5d7e0d377353",
+      "name": "Onboarding Step?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1344,
+        -704
+      ],
+      "notes": "Onboarding. First match wins: age_ok > age_no > returning (already confirmed) > show_terms."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=👋 سلام{{ $json.first_name ? ' ' + String($json.first_name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '' }}! به <b>Try-On Studio</b> خوش آمدید.\n\nاینجا می‌توانید لباس‌ها را به‌صورت مجازی روی عکس خودتان امتحان کنید.\n\n📜 قبل از شروع، لطفاً این موارد را بخوانید:\n• این سرویس فقط برای افراد <b>۱۸ سال به بالا</b> است.\n• فقط عکس خودتان، یا عکسی که اجازه‌اش را دارید، بفرستید.\n• عکس‌ها فقط برای ساخت تصویر پرو استفاده می‌شوند و روی سرورهای تلگرام باقی می‌مانند.\n• ارسال تصاویر نامناسب ممنوع است و باعث مسدود شدن حساب می‌شود.\n• تصویر نهایی را هوش مصنوعی می‌سازد و ممکن است با واقعیت تفاوت داشته باشد.\n\nآیا ۱۸ سال یا بیشتر سن دارید و این شرایط را می‌پذیرید؟",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ بله، بالای ۱۸ سال هستم و می‌پذیرم",
+                    "additionalFields": {
+                      "callback_data": "age_ok"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "❌ خیر",
+                    "additionalFields": {
+                      "callback_data": "age_no"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "7cba3773-9f26-4cf4-9278-e07b7671531d",
+      "name": "Show Terms",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        -368
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Welcome + terms with age_ok / age_no buttons. HTML mode; first_name is HTML-escaped."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tryon.users\n   SET age_confirmed_at = now(),\n       terms_version    = (SELECT value #>> '{}' FROM tryon.settings WHERE key = 'terms_version'),\n       state            = 'AWAIT_PERSON_PHOTO',\n       state_data       = '{}'::jsonb\n WHERE id = $1\n   AND age_confirmed_at IS NULL\nRETURNING id AS user_id, age_confirmed_at, terms_version, state;",
+        "options": {
+          "queryReplacement": "={{ [$json.user_id] }}",
+          "largeNumbersOutput": "numbers"
+        }
+      },
+      "id": "e55cad20-bae7-44b8-af15-c9b8d0229b55",
+      "name": "Confirm Age",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1568,
+        -848
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Records 18+ confirmation and accepted terms version once, then moves the user to AWAIT_PERSON_PHOTO."
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Build Context').item.json.callback_query_id }}",
+        "additionalFields": {
+          "show_alert": false,
+          "text": "✅ تأیید شد"
+        }
+      },
+      "id": "022d69ba-a02d-4558-9fa7-4a180ace318f",
+      "name": "Answer Age OK",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        -848
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Stops the button spinner and shows a short toast."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Build Context').item.json.chat_id }}",
+        "text": "📸 عالی! حالا یک عکس از <b>خودتان</b> بفرستید.\n\nبرای بهترین نتیجه:\n• عکس تمام‌قد باشد، یا حداقل از سر تا زانو\n• رو به دوربین بایستید و دست‌ها کنار بدن باشد\n• نور کافی و پس‌زمینه ساده داشته باشد\n• فقط <b>یک نفر</b> در عکس باشد\n• لباس فعلی‌تان ساده باشد (بدون کاپشن یا کیف بزرگ)\n\nمی‌توانید عکس را معمولی یا به‌صورت فایل بفرستید.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "aa0ad0c3-a37e-410a-a1c8-a20dc9735eae",
+      "name": "Ask Person Photo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2016,
+        -672
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Asks for the user's own photo with tips for a good try-on result. Shared by new and returning users."
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callback_query_id }}",
+        "additionalFields": {
+          "show_alert": true,
+          "text": "متأسفیم 🙏 این سرویس فقط برای افراد ۱۸ سال به بالا است."
+        }
+      },
+      "id": "ef23c21b-71fb-448c-be7a-1e30604f289e",
+      "name": "Answer Age No",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        -656
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "lahI7IO9cFNIrG3p",
+          "name": "Try-On studio Bot"
+        }
+      },
+      "notes": "Stops the button spinner and shows the 18+ only alert. Nothing is stored."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tryon.users\n   SET state = 'AWAIT_PERSON_PHOTO',\n       state_data = '{}'::jsonb\n WHERE id = $1\nRETURNING id AS user_id, state;",
+        "options": {
+          "queryReplacement": "={{ [$json.user_id] }}",
+          "largeNumbersOutput": "numbers"
+        }
+      },
+      "id": "120d9657-6b4e-48f2-b139-a4721119745d",
+      "name": "Reset State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1792,
+        -512
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xrYTQ6UNYnQK1Ct1",
+          "name": "Postgres n8n_app"
+        }
+      },
+      "notes": "Returning user sent /start: restart the flow at AWAIT_PERSON_PHOTO. Keeps the earlier age confirmation."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "qsf3OLETAZf0mwAz",
+          "cachedResultName": "Try-On Bot · 2 · Photo & Try-On",
+          "cachedResultUrl": "/workflow/qsf3OLETAZf0mwAz"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ba882bfc-8307-485a-ab9c-869ce283fae7",
+      "name": "Call Photo & Try-On",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1344,
+        -256
+      ],
+      "notes": "Sends the full context to Try-On Bot · 2 · Photo & Try-On and waits for it to finish."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Code node \"Normalize Update\" in workflow \"Try-On Bot · 1 · Gateway & Onboarding\".\n// Mode: Run Once for Each Item. Turns any Telegram update into one flat shape.\nconst u = $json;\nconst m = u.message ?? {};\nconst msg = u.message ?? u.callback_query?.message ?? {};\nconst from = u.callback_query?.from ?? m.from ?? {};\nconst chat = msg.chat ?? {};\n\nconst asPhoto = (f, mime_type) => ({\n  file_id: f.file_id, file_unique_id: f.file_unique_id,\n  width: f.width ?? null, height: f.height ?? null, file_size: f.file_size, mime_type,\n});\n\n// Largest photo (Telegram always re-encodes compressed photos as JPEG), or an image sent as a file\nconst photo = m.photo?.length ? asPhoto(m.photo.at(-1), 'image/jpeg')\n  : m.document?.mime_type?.startsWith('image/') ? asPhoto(m.document, m.document.mime_type)\n  : null;\n\nconst text = m.text ?? m.caption ?? null;\nconst cmd = text?.match(/^\\/(\\w+)(?:@\\w+)?\\s*(.*)$/s);\n\nconst kind = u.callback_query ? 'callback'\n  : photo ? 'photo'\n  : cmd ? 'command'\n  : text ? 'text'\n  : 'unsupported';\n\nreturn {\n  json: {\n    update_id: u.update_id,\n    kind,\n    telegram_user_id: from.id ?? null,\n    chat_id: chat.id ?? null,\n    username: from.username ?? null,\n    first_name: from.first_name ?? null,\n    language_code: from.language_code ?? null,\n    is_private: chat.type === 'private',\n    command: cmd ? cmd[1].toLowerCase() : null,\n    command_args: cmd ? cmd[2].trim() : null,\n    text,\n    photo,\n    callback_query_id: u.callback_query?.id ?? null,\n    callback_data: u.callback_query?.data ?? null,\n    message_id: msg.message_id ?? null,\n    ignore: !from.id || !!from.is_bot || chat.type !== 'private',\n  },\n};\n"
+      },
+      "id": "8201718d-eef9-4526-a993-0b044a598a58",
+      "name": "Normalize Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -160
+      ],
+      "notes": "Turns any Telegram update (command, text, photo, image file, button click) into one flat shape. Source: n8n/code/gateway-normalize-update.js"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Skip Ignored": {
+      "main": [
+        [
+          {
+            "node": "Upsert User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert User": {
+      "main": [
+        [
+          {
+            "node": "Build Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Context": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Blocked Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Onboarding Step?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Photo & Try-On",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer Old Button",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Age": {
+      "main": [
+        [
+          {
+            "node": "Answer Age OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Age OK": {
+      "main": [
+        [
+          {
+            "node": "Ask Person Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset State": {
+      "main": [
+        [
+          {
+            "node": "Ask Person Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Onboarding Step?": {
+      "main": [
+        [
+          {
+            "node": "Confirm Age",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer Age No",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reset State",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show Terms",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Update": {
+      "main": [
+        [
+          {
+            "node": "Skip Ignored",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "3b100e7a-c188-4568-8371-e14ab717b0ba",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "nodeGroups": [],
+  "id": "1YLms2OhyDN7aDK8",
+  "tags": []
+}
